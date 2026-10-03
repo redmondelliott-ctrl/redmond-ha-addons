@@ -2,7 +2,7 @@
 // password, cookies or tokens in here.
 
 export const status = {
-  state: 'starting', // starting | logging_in | needs_code | ready | error | needs_config
+  state: 'starting', // starting | logging_in | needs_code | ready | paused | error | needs_config
   message: 'Starting…',
   favourites: [],
   connected: false,

@@ -32,4 +32,9 @@ export class Cloud {
   products(products) {
     return this.call('products', { products })
   }
+
+  /** Send orders (summaries, or one order's items); `done` marks the sync finished. */
+  orders(orders, done) {
+    return this.call('orders', { orders, done })
+  }
 }
