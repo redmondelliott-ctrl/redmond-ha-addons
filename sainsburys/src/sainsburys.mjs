@@ -37,6 +37,20 @@ export class Sainsburys {
     this.page = this.context.pages()[0] ?? (await this.context.newPage())
   }
 
+  /** page.goto that rides out Chromium's transient network errors (common in containers). */
+  async goto(url) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      } catch (e) {
+        const msg = String(e?.message ?? e)
+        if (attempt >= 5 || !/net::ERR_(NETWORK_CHANGED|INTERNET_DISCONNECTED|CONNECTION_RESET|NAME_NOT_RESOLVED|TIMED_OUT)|Timeout/.test(msg)) throw e
+        log(`Network hiccup (${msg.match(/net::\w+|Timeout/)?.[0]}), retrying ${attempt}/4…`)
+        await this.page.waitForTimeout(3000 * attempt)
+      }
+    }
+  }
+
   async stop() {
     await this.context?.close().catch(() => {})
   }
@@ -51,7 +65,7 @@ export class Sainsburys {
     const url = new URL(API + path)
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v))
     const token = await this.authToken()
-    if (!this.page.url().startsWith(SITE)) await this.page.goto(`${SITE}/gol-ui/groceries`, { waitUntil: 'domcontentloaded' })
+    if (!this.page.url().startsWith(SITE)) await this.goto(`${SITE}/gol-ui/groceries`)
     return this.page.evaluate(
       async ({ method, url, body, token }) => {
         const res = await fetch(url, {
@@ -98,7 +112,7 @@ export class Sainsburys {
   async login() {
     setStatus({ state: 'logging_in', message: 'Logging in to Sainsbury’s…' })
     const page = this.page
-    await page.goto(`${SITE}/gol-ui/oauth/login`, { waitUntil: 'domcontentloaded' })
+    await this.goto(`${SITE}/gol-ui/oauth/login`)
     await page.waitForTimeout(3000)
     if (await this.isLoggedIn()) return
     await this.dismissCookieBanner()
