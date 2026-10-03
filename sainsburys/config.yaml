@@ -1,7 +1,7 @@
 name: Sainsbury's Connector
-version: "0.2.1"
+version: "0.2.2"
 slug: sainsburys_connector
-description: Lets Redmond's App add favourites to your Sainsbury's trolley (unofficial).
+description: Lets Famz add favourites to your Sainsbury's trolley (unofficial).
 url: https://github.com/redmondelliott-ctrl/redmond-ha-addons
 arch:
   - aarch64

@@ -1,4 +1,4 @@
-// Talks to Redmond's App (the `grocery` Edge Function). Only the connector
+// Talks to Famz (the `grocery` Edge Function). Only the connector
 // token is sent; the Sainsbury's login never leaves this machine.
 import { log } from './status.mjs'
 

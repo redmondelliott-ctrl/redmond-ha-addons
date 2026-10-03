@@ -17,7 +17,7 @@ const errorText = (e) => (e instanceof Error ? e.message : String(e))
 if (!options.email || !options.password) {
   setStatus({ state: 'needs_config', message: 'Enter your Sainsbury’s email and password in the Configuration tab, then restart.' })
 } else if (!options.connector_token) {
-  setStatus({ state: 'needs_config', message: 'Paste the connector token from Redmond’s App (Settings → Sainsbury’s) into the Configuration tab, then restart.' })
+  setStatus({ state: 'needs_config', message: 'Paste the connector token from Famz (Settings → Sainsbury’s) into the Configuration tab, then restart.' })
 } else {
   run().catch((e) => setStatus({ state: 'error', message: errorText(e) }))
 }
@@ -158,7 +158,7 @@ async function pollLoop(cloud, enqueue) {
       const { jobs } = await cloud.poll()
       if (!status.connected) {
         setStatus({ connected: true })
-        log('Connected to Redmond’s App.')
+        log('Connected to Famz.')
       }
       for (const job of jobs ?? []) {
         if (job.kind === 'code') {
@@ -170,7 +170,7 @@ async function pollLoop(cloud, enqueue) {
       }
     } catch (e) {
       setStatus({ connected: false })
-      log(`Can’t reach Redmond’s App: ${errorText(e)}`)
+      log(`Can’t reach Famz: ${errorText(e)}`)
       await sleep(15_000)
     }
   }

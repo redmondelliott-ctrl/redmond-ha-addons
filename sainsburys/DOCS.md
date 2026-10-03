@@ -1,7 +1,7 @@
 # Sainsbury's Connector
 
 Keeps a Sainsbury's groceries session on this Home Assistant machine so
-Redmond's App can add your favourites to your trolley.
+Famz can add your favourites to your trolley.
 
 **Unofficial.** Sainsbury's has no public API, so this drives their website
 in a hidden browser, as you. It can stop working whenever they change their
@@ -9,7 +9,7 @@ site, and automated access may be against their terms.
 
 ## Setup
 
-1. In Redmond's App, go to **Settings → Sainsbury's** and tap
+1. In Famz, go to **Settings → Sainsbury's** and tap
    **Create connector token**. Copy it.
 2. Open this add-on's **Configuration** tab and fill in your Sainsbury's
    email and password, and paste the token into `connector_token`. Save.

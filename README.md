@@ -1,6 +1,6 @@
-# Redmond's App add-ons
+# Famz add-ons
 
-Home Assistant add-ons used by Redmond's App (a private family app).
+Home Assistant add-ons used by Famz (a private family app).
 
 - **Sainsbury's Connector**: keeps a Sainsbury's groceries session on your
   own Home Assistant machine so the family app can add favourites to the
