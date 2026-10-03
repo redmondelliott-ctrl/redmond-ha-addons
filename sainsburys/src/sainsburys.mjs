@@ -1,13 +1,14 @@
 // Drives the Sainsbury's groceries website in a hidden Chromium, as the
 // account holder. Unofficial: endpoints are the ones the website itself
 // uses, and can change without notice.
-import { chromium } from 'playwright'
+import { chromium } from 'playwright-core'
 import { log, setStatus, waitForCode } from './status.mjs'
 
 const SITE = 'https://www.sainsburys.co.uk'
 const API = `${SITE}/groceries-api/gol-services`
 const PROFILE_DIR = '/data/browser' // persistent: remembers this "device" and its cookies
 const STORE = '0560'
+const LAUNCH = { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] }
 
 export class Sainsburys {
   /** @type {import('playwright').BrowserContext | null} */
@@ -22,10 +23,11 @@ export class Sainsburys {
 
   async start() {
     // Use the real Chrome version in the user agent, minus "Headless".
-    const probe = await chromium.launch()
+    const probe = await chromium.launch(LAUNCH)
     const version = probe.version()
     await probe.close()
     this.context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      ...LAUNCH,
       headless: true,
       userAgent: `Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`,
       locale: 'en-GB',
