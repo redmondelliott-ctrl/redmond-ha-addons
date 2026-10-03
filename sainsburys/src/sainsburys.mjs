@@ -54,6 +54,18 @@ export class Sainsburys {
     }
   }
 
+  async screenshot() {
+    await this.page?.screenshot({ path: '/data/last-screen.png', timeout: 10_000 }).catch(() => {})
+  }
+
+  /** Throw away the browser window and start again (after a hang). */
+  async restart() {
+    await this.screenshot()
+    await this.stop()
+    await this.start()
+    this.okAt = 0
+  }
+
   async stop() {
     await this.context?.close().catch(() => {})
   }
@@ -69,10 +81,11 @@ export class Sainsburys {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v))
     const token = await this.authToken()
     if (!this.page.url().startsWith(SITE)) await this.goto(`${SITE}/gol-ui/groceries`)
-    return this.page.evaluate(
+    const call = this.page.evaluate(
       async ({ method, url, body, token }) => {
         const res = await fetch(url, {
           method,
+          signal: AbortSignal.timeout(20_000),
           credentials: 'include',
           headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(token ? { wcauthtoken: token } : {}) },
           body: body ? JSON.stringify(body) : undefined,
@@ -87,10 +100,10 @@ export class Sainsburys {
         return { status: res.status, json, text: json ? '' : text.slice(0, 300) }
       },
       { method, url: url.toString(), body, token },
-    ).then((r) => {
-      if (r.status === 401 || r.status === 403) this.okAt = 0
-      return r
-    })
+    )
+    const r = await withTimeout(call, 30_000, `Sainsbury’s didn’t answer (${path})`)
+    if (r.status === 401 || r.status === 403) this.okAt = 0
+    return r
   }
 
   basketParams() {
@@ -120,7 +133,8 @@ export class Sainsburys {
     const page = this.page
     await this.goto(`${SITE}/gol-ui/oauth/login`)
     await page.waitForTimeout(3000)
-    if (await this.isLoggedIn()) return
+    log(`Login page: ${new URL(page.url()).host}${new URL(page.url()).pathname}`)
+    if (!page.url().includes('login') && (await this.isLoggedIn().catch(() => false))) return
     await this.dismissCookieBanner()
 
     const emailBox = page.locator('input[type="email"], input[name="email"], #username').first()
@@ -130,8 +144,9 @@ export class Sainsburys {
     await page.locator('input[type="password"], input[name="password"], #password').first().fill(this.password)
     await page.waitForTimeout(400)
     await this.dismissCookieBanner()
-    await page.locator('button[type="submit"], button[data-testid="log-in"]').first().click()
+    await page.locator('button[type="submit"], button[data-testid="log-in"]').first().click({ timeout: 15_000 })
     await page.waitForTimeout(6000)
+    log(`After login: ${new URL(page.url()).host}${new URL(page.url()).pathname}`)
 
     if (page.url().includes('/mfa') || (await page.locator('#code, input[name="code"]').count()) > 0) {
       setStatus({ state: 'needs_code', message: 'Sainsbury’s has sent a code by text. Open this add-on’s Web UI and type it in.' })
@@ -144,7 +159,9 @@ export class Sainsburys {
       await page.waitForTimeout(6000)
     }
 
+    if (!page.url().startsWith(SITE)) await this.goto(`${SITE}/gol-ui/groceries`)
     if (!(await this.isLoggedIn())) {
+      await this.screenshot()
       const where = new URL(page.url()).pathname
       const title = await page.title().catch(() => '')
       throw new Error(`Login didn’t work (ended on ${where}${title ? `, “${title}”` : ''}). Check the email and password.`)
@@ -224,6 +241,16 @@ export class Sainsburys {
     if (r.status >= 300) throw new Error(`Adding to trolley failed (HTTP ${r.status}) ${r.text}`)
     log(`Added product ${productUid} ×${quantity}`)
   }
+}
+
+export function withTimeout(promise, ms, message) {
+  let timer
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms)
+    }),
+  ])
 }
 
 function mapProduct(p) {

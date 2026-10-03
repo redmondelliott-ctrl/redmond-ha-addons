@@ -1,4 +1,5 @@
 // Tiny status page served through Home Assistant Ingress ("Open Web UI").
+import fs from 'node:fs'
 import http from 'node:http'
 import { status, submitCode } from './status.mjs'
 
@@ -32,6 +33,7 @@ function page() {
 <div class="card"><b>${esc(status.state.replace('_', ' '))}</b><br>${esc(status.message)}
 <div class="muted">${status.connected ? 'Connected to Redmond’s App' : 'Not connected to Redmond’s App yet'} · updated ${esc(status.updatedAt)}</div></div>
 ${codeForm}
+${status.state === 'error' ? '<div class="card"><a href="screen.png">What the hidden browser last saw</a></div>' : ''}
 ${status.lastTest ? `<div class="card"><b>Test</b><br>${esc(status.lastTest)}</div>` : ''}
 ${status.basket ? `<div class="card"><b>Trolley</b><br>${esc(status.basket.count)} items · £${esc(status.basket.total)}</div>` : ''}
 ${fav ? `<div class="card"><b>Favourites (first ${status.favourites.length})</b><ul>${fav}</ul></div>` : ''}
@@ -49,6 +51,13 @@ export function startServer(port = 8099) {
           const code = new URLSearchParams(body).get('code')?.trim() ?? ''
           if (/^\d{4,8}$/.test(code)) submitCode(code)
           res.writeHead(303, { Location: './' }).end()
+        })
+        return
+      }
+      if (req.url?.endsWith('/screen.png')) {
+        fs.readFile('/data/last-screen.png', (err, buf) => {
+          if (err) res.writeHead(404).end('No screenshot yet')
+          else res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }).end(buf)
         })
         return
       }

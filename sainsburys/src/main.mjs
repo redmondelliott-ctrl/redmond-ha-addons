@@ -7,7 +7,9 @@ import { log, onStatus, setStatus, status, submitCode } from './status.mjs'
 const options = JSON.parse(fs.readFileSync('/data/options.json', 'utf8'))
 startServer(8099)
 
-const KEEPALIVE_MS = 10 * 60_000
+const KEEPALIVE_MS = 4 * 60_000
+const JOB_TIMEOUT_MS = 3 * 60_000
+const CODE_TIMEOUT_MS = 12 * 60_000
 const FAVOURITES_MS = 6 * 60 * 60_000
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const errorText = (e) => (e instanceof Error ? e.message : String(e))
@@ -52,46 +54,82 @@ async function run() {
     if (!queue.length) {
       await new Promise((r) => {
         wake = r
-        setTimeout(r, 60_000)
+        setTimeout(r, 30_000)
       })
       wake = null
     }
     const job = queue.shift()
     try {
-      if (!job) {
-        if (Date.now() - lastFavourites > FAVOURITES_MS) enqueue({ id: null, kind: 'refresh' })
-        else if (Date.now() - lastCheck > KEEPALIVE_MS) {
-          lastCheck = Date.now()
-          await sb.ensureLoggedIn()
-          await refreshBasket(sb)
-        }
-        continue
-      }
-      await sb.ensureLoggedIn()
-      if (status.state !== 'ready') setStatus({ state: 'ready', message: 'Connected to Sainsbury’s.' })
-      lastCheck = Date.now()
-      let result = {}
-      if (job.kind === 'refresh') {
-        const favourites = await sb.favourites()
-        await cloud.products(favourites)
-        lastFavourites = Date.now()
-        setStatus({ favourites: favourites.slice(0, 12) })
-        log(`Synced ${favourites.length} favourites`)
-        result = { favourites: favourites.length }
-      } else if (job.kind === 'add') {
-        await sb.add(String(job.payload.uid), clampQty(job.payload.quantity ?? 1, 1))
-      } else if (job.kind === 'set') {
-        await sb.setQuantity(String(job.payload.uid), clampQty(job.payload.quantity, 0))
-      }
-      const basket = await refreshBasket(sb)
-      if (job.id) await cloud.report({ jobId: job.id, ok: true, result: { ...result, basket: { count: basket.count, total: basket.total } }, status: appStatus() })
+      // A text code can legitimately take a while; anything else that runs
+      // this long is a hang, so the browser gets restarted.
+      await hangGuard(work(job))
     } catch (e) {
       log(`Job ${job?.kind ?? 'check'} failed: ${errorText(e)}`)
       if (job?.id) await cloud.report({ jobId: job.id, ok: false, error: errorText(e) })
-      if (status.state !== 'needs_code') setStatus({ state: 'error', message: errorText(e) })
-      await sleep(2000)
+      if (/stopped responding|didn’t answer|Target (page|closed)|has been closed/i.test(errorText(e))) {
+        log('Restarting the browser…')
+        await sb.restart().catch((err) => log(`Browser restart failed: ${errorText(err)}`))
+      }
+      if (status.state !== 'needs_code') setStatus({ state: 'error', message: `${errorText(e)}. Trying again shortly.` })
+      lastCheck = 0 // retry the login on the next quiet tick
+      await sleep(5000)
     }
   }
+
+  async function work(job) {
+    if (!job) {
+      if (Date.now() - lastFavourites > FAVOURITES_MS) enqueue({ id: null, kind: 'refresh' })
+      else if (Date.now() - lastCheck > KEEPALIVE_MS) {
+        lastCheck = Date.now()
+        await sb.ensureLoggedIn()
+        if (status.state !== 'ready') setStatus({ state: 'ready', message: 'Connected to Sainsbury’s.' })
+        await refreshBasket(sb)
+      }
+      return
+    }
+    await sb.ensureLoggedIn()
+    if (status.state !== 'ready') setStatus({ state: 'ready', message: 'Connected to Sainsbury’s.' })
+    lastCheck = Date.now()
+    let result = {}
+    if (job.kind === 'refresh') {
+      const favourites = await sb.favourites()
+      await cloud.products(favourites)
+      lastFavourites = Date.now()
+      setStatus({ favourites: favourites.slice(0, 12) })
+      log(`Synced ${favourites.length} favourites`)
+      result = { favourites: favourites.length }
+    } else if (job.kind === 'add') {
+      await sb.add(String(job.payload.uid), clampQty(job.payload.quantity ?? 1, 1))
+    } else if (job.kind === 'set') {
+      await sb.setQuantity(String(job.payload.uid), clampQty(job.payload.quantity, 0))
+    }
+    const basket = await refreshBasket(sb)
+    if (job.id) await cloud.report({ jobId: job.id, ok: true, result: { ...result, basket: { count: basket.count, total: basket.total } }, status: appStatus() })
+  }
+}
+
+/** Reject if a job runs too long (longer allowance while waiting for a text code). */
+function hangGuard(promise) {
+  const started = Date.now()
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(() => {
+      const limit = status.state === 'needs_code' ? CODE_TIMEOUT_MS : JOB_TIMEOUT_MS
+      if (Date.now() - started > limit) {
+        clearInterval(timer)
+        reject(new Error('Sainsbury’s stopped responding'))
+      }
+    }, 5000)
+    promise.then(
+      (v) => {
+        clearInterval(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearInterval(timer)
+        reject(e)
+      },
+    )
+  })
 }
 
 async function refreshBasket(sb) {
