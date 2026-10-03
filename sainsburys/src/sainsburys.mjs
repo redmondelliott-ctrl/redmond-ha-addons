@@ -7,7 +7,10 @@ import { log, setStatus, waitForCode } from './status.mjs'
 const SITE = 'https://www.sainsburys.co.uk'
 const API = `${SITE}/groceries-api/gol-services`
 const PROFILE_DIR = '/data/browser' // persistent: remembers this "device" and its cookies
-const STORE = '0560'
+let STORE = '0560'
+export function setStore(n) {
+  if (/^\d{3,5}$/.test(String(n ?? ''))) STORE = String(n)
+}
 const LAUNCH = { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox', '--disable-dev-shm-usage'] }
 
 export class Sainsburys {
@@ -84,7 +87,10 @@ export class Sainsburys {
         return { status: res.status, json, text: json ? '' : text.slice(0, 300) }
       },
       { method, url: url.toString(), body, token },
-    )
+    ).then((r) => {
+      if (r.status === 401 || r.status === 403) this.okAt = 0
+      return r
+    })
   }
 
   basketParams() {
@@ -145,28 +151,69 @@ export class Sainsburys {
     }
   }
 
+  /** Log in if needed. Trusts a recent successful check to keep taps fast. */
   async ensureLoggedIn() {
-    if (await this.isLoggedIn().catch(() => false)) return
-    await this.login()
+    if (this.okAt && Date.now() - this.okAt < 2 * 60_000) return
+    if (!(await this.isLoggedIn().catch(() => false))) await this.login()
+    this.okAt = Date.now()
   }
 
-  async favourites(limit = 24) {
-    const r = await this.api('GET', '/product/v1/favourites', {
-      params: { minimised: 'true', store_identifier: STORE, page_number: 1, page_size: limit },
-    })
-    if (r.status !== 200) throw new Error(`Favourites request failed (HTTP ${r.status}) ${r.text}`)
-    return (r.json?.products ?? []).map((p) => ({
-      uid: p.product_uid,
-      name: p.name,
-      price: p.retail_price?.price ?? null,
-      image: p.image ?? p.assets?.plp_image ?? null,
-    }))
+  async favourites(max = 120) {
+    const out = []
+    for (let page = 1; out.length < max && page <= 10; page++) {
+      const r = await this.api('GET', '/product/v1/favourites', {
+        params: { minimised: 'true', store_identifier: STORE, page_number: page, page_size: 24 },
+      })
+      if (r.status !== 200) throw new Error(`Favourites request failed (HTTP ${r.status}) ${r.text}`)
+      const batch = (r.json?.products ?? []).map(mapProduct)
+      out.push(...batch)
+      if (batch.length < 24) break
+    }
+    return out.slice(0, max)
   }
 
-  async basket() {
+  async basketRaw() {
     const r = await this.api('GET', '/basket/v2/basket', { params: this.basketParams() })
     if (r.status !== 200) throw new Error(`Trolley request failed (HTTP ${r.status}) ${r.text}`)
-    return { count: r.json?.item_count ?? 0, total: r.json?.total_price ?? '0.00' }
+    return r.json ?? {}
+  }
+
+  /** Trolley summary: count, total and quantity per product. */
+  async basket() {
+    const data = await this.basketRaw()
+    const items = (data.items ?? []).map((it) => ({
+      uid: String(it.product?.product_uid ?? it.product?.sku ?? ''),
+      itemUid: it.item_uid,
+      qty: Number(it.quantity) || 0,
+    }))
+    return { count: data.item_count ?? items.reduce((n, i) => n + i.qty, 0), total: Number(data.total_price ?? 0), items }
+  }
+
+  /** Set a product's trolley quantity (0 removes it). */
+  async setQuantity(productUid, quantity) {
+    const { items } = await this.basket()
+    const item = items.find((i) => i.uid === String(productUid))
+    if (!item) {
+      if (quantity > 0) await this.add(productUid, quantity)
+      return
+    }
+    const r = await this.api('PUT', '/basket/v2/basket', {
+      params: this.basketParams(),
+      body: {
+        items: [
+          {
+            product_uid: String(productUid),
+            quantity,
+            uom: 'ea',
+            selected_catchweight: '',
+            item_uid: item.itemUid,
+            decreasing_quantity: quantity < item.qty,
+          },
+        ],
+      },
+    })
+    if (r.status >= 300) throw new Error(`Changing the trolley failed (HTTP ${r.status}) ${r.text}`)
+    log(`Set product ${productUid} to ×${quantity}`)
   }
 
   async add(productUid, quantity = 1) {
@@ -176,5 +223,16 @@ export class Sainsburys {
     })
     if (r.status >= 300) throw new Error(`Adding to trolley failed (HTTP ${r.status}) ${r.text}`)
     log(`Added product ${productUid} ×${quantity}`)
+  }
+}
+
+function mapProduct(p) {
+  const unit = p.unit_price?.price != null && p.unit_price?.measure ? `£${Number(p.unit_price.price).toFixed(2)}/${p.unit_price.measure}` : null
+  return {
+    uid: String(p.product_uid),
+    name: p.name,
+    price: p.retail_price?.price ?? null,
+    unitPrice: unit,
+    image: p.image ?? p.assets?.plp_image ?? p.image_thumbnail ?? null,
   }
 }

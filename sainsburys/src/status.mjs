@@ -5,14 +5,21 @@ export const status = {
   state: 'starting', // starting | logging_in | needs_code | ready | error | needs_config
   message: 'Starting…',
   favourites: [],
+  connected: false,
   basket: null,
   lastTest: null,
   updatedAt: new Date().toISOString(),
 }
 
+const listeners = new Set()
+export function onStatus(fn) {
+  listeners.add(fn)
+}
+
 export function setStatus(patch) {
   Object.assign(status, patch, { updatedAt: new Date().toISOString() })
   if (patch.message) log(patch.message)
+  if (patch.state || patch.message || patch.basket) for (const fn of listeners) fn(status)
 }
 
 export function log(...args) {

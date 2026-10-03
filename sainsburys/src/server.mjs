@@ -30,7 +30,7 @@ function page() {
 </style></head><body>
 <h1>Sainsbury’s Connector</h1>
 <div class="card"><b>${esc(status.state.replace('_', ' '))}</b><br>${esc(status.message)}
-<div class="muted">Updated ${esc(status.updatedAt)}</div></div>
+<div class="muted">${status.connected ? 'Connected to Redmond’s App' : 'Not connected to Redmond’s App yet'} · updated ${esc(status.updatedAt)}</div></div>
 ${codeForm}
 ${status.lastTest ? `<div class="card"><b>Test</b><br>${esc(status.lastTest)}</div>` : ''}
 ${status.basket ? `<div class="card"><b>Trolley</b><br>${esc(status.basket.count)} items · £${esc(status.basket.total)}</div>` : ''}

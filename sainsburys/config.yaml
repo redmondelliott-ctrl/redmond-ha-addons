@@ -1,5 +1,5 @@
 name: Sainsbury's Connector
-version: "0.1.2"
+version: "0.2.0"
 slug: sainsburys_connector
 description: Lets Redmond's App add favourites to your Sainsbury's trolley (unofficial).
 url: https://github.com/redmondelliott-ctrl/redmond-ha-addons
@@ -8,15 +8,16 @@ arch:
   - amd64
 init: false
 startup: application
-boot: manual
+boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:cart
 options:
   email: ""
   password: ""
-  test_add_first_favourite: true
+  connector_token: ""
 schema:
   email: str
   password: password
-  test_add_first_favourite: bool
+  connector_token: password
+  store_number: str?

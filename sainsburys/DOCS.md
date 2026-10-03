@@ -9,12 +9,11 @@ site, and automated access may be against their terms.
 
 ## Setup
 
-1. Open the **Configuration** tab, enter your Sainsbury's email and password,
-   and save. They stay on this machine.
-2. Start the add-on, then open **Open Web UI** to see its status.
-3. If Sainsbury's texts you a code, type it into the Web UI.
-
-## Version 0.1 (test)
-
-Logs in, lists your first favourites, and (if `test_add_first_favourite` is
-on) adds one of the first favourite to your trolley to prove it works.
+1. In Redmond's App, go to **Settings → Sainsbury's** and tap
+   **Create connector token**. Copy it.
+2. Open this add-on's **Configuration** tab and fill in your Sainsbury's
+   email and password, and paste the token into `connector_token`. Save.
+   (`store_number` is optional; leave it blank.)
+3. Start the add-on. Your favourites appear in the app's Shop tab.
+4. If Sainsbury's texts you a code, the app asks for it (or type it into this
+   add-on's **Open Web UI** page).
