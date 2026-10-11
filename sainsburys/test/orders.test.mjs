@@ -73,4 +73,7 @@ test('backoff and login guard', () => {
   assert.doesNotThrow(() => g.begin(1001))
   g.failed(1001)
   assert.equal(g.nextAllowed(1050) > 0, true)
+  // A working session later clears the strike (the "failed" login had in fact worked).
+  g.succeeded()
+  assert.equal(g.state.failures, 0)
 })

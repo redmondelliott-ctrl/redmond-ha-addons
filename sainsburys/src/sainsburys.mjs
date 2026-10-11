@@ -244,12 +244,38 @@ export class Sainsburys {
       await this.checkPage(200)
     }
 
-    if (!page.url().startsWith(SITE)) await this.goto(`${SITE}/gol-ui/groceries`)
-    if (!(await this.isLoggedIn())) {
+    await this.settleAfterLogin()
+    if (!(await this.loggedInSoon())) {
       await this.screenshot()
       const where = new URL(page.url()).pathname
       const title = await page.title().catch(() => '')
       throw new Error(`Login didn’t work (ended on ${where}${title ? `, “${title}”` : ''}). Check the email and password.`)
+    }
+  }
+
+  /**
+   * Sainsbury's often parks on /gol-ui/oauth/redirect for a few seconds while
+   * it sets the login cookie; let it finish before judging the login.
+   */
+  async settleAfterLogin() {
+    const page = this.page
+    if (page.url().includes('/oauth/redirect')) {
+      await page.waitForURL((u) => !u.pathname.includes('/oauth/redirect'), { timeout: 20_000 }).catch(() => {})
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
+    }
+    if (!page.url().startsWith(SITE)) await this.goto(`${SITE}/gol-ui/groceries`)
+  }
+
+  /** Logged in now, or within a few seconds (the cookie can land late). */
+  async loggedInSoon(tries = 3) {
+    for (let i = 1; ; i++) {
+      try {
+        if (await this.isLoggedIn()) return true
+      } catch (e) {
+        if (e instanceof BlockedError) throw e
+      }
+      if (i >= tries) return false
+      await pause(4000, 7000)
     }
   }
 
@@ -263,6 +289,9 @@ export class Sainsburys {
       if (e instanceof BlockedError) throw e
     }
     if (!ok) await this.login()
+    // Logged in and working, so any earlier "failed" login was a false alarm
+    // (it often finishes a moment after we gave up on it): clear the strikes.
+    else this.loginGuard.succeeded()
     this.okAt = Date.now()
   }
 

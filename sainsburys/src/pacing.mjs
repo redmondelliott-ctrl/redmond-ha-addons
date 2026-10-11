@@ -146,6 +146,7 @@ export class LoginGuard {
   }
 
   succeeded() {
+    if (!this.state.failures) return
     this.state.failures = 0
     this.save()
   }
