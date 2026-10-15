@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { Cloud } from './cloud.mjs'
+import { addItems, searchQueries } from './jobs.mjs'
 import { Backoff, BlockedError, isDaytime, jitter, LoginCooldownError, pause, sleep, ukTime } from './pacing.mjs'
 import { Sainsburys, setStore } from './sainsburys.mjs'
 import { startServer } from './server.mjs'
@@ -177,6 +178,36 @@ async function run() {
     }
   }
 
+  /** Look up ingredients for a meal (Famz asks only for ones it can't match from past orders). */
+  async function searchMany(queries) {
+    const out = []
+    for (const query of queries) {
+      try {
+        out.push({ query, products: await sb.search(query) })
+      } catch (e) {
+        if (e instanceof BlockedError) throw e
+        out.push({ query, products: [], error: errorText(e) })
+      }
+    }
+    log(`Looked up ${queries.length} ingredient${queries.length === 1 ? '' : 's'}`)
+    return out
+  }
+
+  /** Put a meal's shopping in the trolley, one product at a time like a person would. */
+  async function addMany(items) {
+    const failed = []
+    for (const { uid, quantity } of items) {
+      try {
+        await sb.add(uid, quantity)
+      } catch (e) {
+        if (e instanceof BlockedError) throw e
+        failed.push(uid)
+      }
+    }
+    if (items.length && failed.length === items.length) throw new Error('Sainsbury’s wouldn’t take those items.')
+    return { added: items.length - failed.length, failed }
+  }
+
   async function work(job) {
     if (!job) {
       await ready()
@@ -189,10 +220,14 @@ async function run() {
     }
     await ready()
     let result = {}
-    if (job.kind === 'refresh') {
+    if (job.kind === 'refresh' && job.payload?.search) {
+      result = { search: await searchMany(searchQueries(job.payload)) }
+    } else if (job.kind === 'refresh') {
       result = { favourites: await refreshFavourites() }
     } else if (job.kind === 'orders') {
       result = await syncOrders(12)
+    } else if (job.kind === 'add' && Array.isArray(job.payload?.items)) {
+      result = await addMany(addItems(job.payload))
     } else if (job.kind === 'add') {
       await sb.add(String(job.payload.uid), clampQty(job.payload.quantity ?? 1, 1))
     } else if (job.kind === 'set') {
