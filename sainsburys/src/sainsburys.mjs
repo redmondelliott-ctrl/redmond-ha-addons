@@ -309,6 +309,15 @@ export class Sainsburys {
     return out.slice(0, max)
   }
 
+  /** Products matching some words, like the website's search box (favourites first). */
+  async search(query, max = 6) {
+    const r = await this.api('GET', '/product/v1/product', {
+      params: { 'filter[keyword]': query, page_number: 1, page_size: 24, sort_order: 'FAVOURITES_FIRST', store_identifier: STORE },
+    })
+    if (r.status !== 200) throw new Error(`Search failed (HTTP ${r.status}) ${r.text}`)
+    return (r.json?.products ?? []).map(mapProduct).filter((p) => p.uid && p.name).slice(0, max)
+  }
+
   async basketRaw() {
     const r = await this.api('GET', '/basket/v2/basket', { params: this.basketParams() })
     if (r.status !== 200) throw new Error(`Trolley request failed (HTTP ${r.status}) ${r.text}`)
