@@ -33,6 +33,26 @@ export function ukTime(ms) {
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }).format(new Date(ms))
 }
 
+const SESSION_MIN = 60_000
+
+/**
+ * What a quiet background check should do to keep the Sainsbury's session
+ * alive, so a tap in the app never waits for a full login:
+ * - 'login'  the login is gone or about to run out (under 10 min left)
+ * - 'reload' reopen the groceries page (the website renews its own login when
+ *            a page loads): when the login runs out within 25 min, or the
+ *            page hasn't been loaded for 40 min
+ * - 'none'   all fine
+ */
+export function sessionAction({ now, expiresAt = 0, pageAt = 0, hasToken = true }) {
+  if (!hasToken) return 'login'
+  const left = expiresAt > 0 ? expiresAt - now : Infinity
+  const sinceReload = now - pageAt
+  if (left < 10 * SESSION_MIN && sinceReload < 5 * SESSION_MIN) return 'login'
+  if (left < 25 * SESSION_MIN || sinceReload > 40 * SESSION_MIN) return 'reload'
+  return 'none'
+}
+
 /** Sainsbury's (or its bot manager) wants us to stop for a while. */
 export class BlockedError extends Error {
   constructor(message) {
@@ -135,6 +155,12 @@ export class LoginGuard {
       at = Math.max(at, this.state.lastFailure + wait)
     }
     return at > now ? at : 0
+  }
+
+  /** Login attempts still allowed in the current window (0 while waiting after a failure). */
+  remaining(now = Date.now()) {
+    if (this.nextAllowed(now)) return 0
+    return Math.max(0, this.max - this.state.attempts.filter((t) => now - t < this.windowMs).length)
   }
 
   /** Throws LoginCooldownError if we should not try yet; otherwise records the attempt. */

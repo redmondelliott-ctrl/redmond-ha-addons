@@ -29,9 +29,12 @@ connection in good standing, the connector:
 - logs in at most 4 times in 6 hours, waiting longer after each failure, so
   a wrong password can't lock your account;
 - types and clicks at a human pace, and leaves random gaps between requests;
-- checks in only now and then (every 12–25 minutes in the day, every hour
+- checks in only now and then (every 10–18 minutes in the day, every hour
   or two overnight), syncs favourites a few times a day and orders once a
   day;
+- keeps its login fresh on those daytime check-ins (reopening the groceries
+  page now and then, and logging in again shortly before the login runs
+  out), so adding to the trolley from Famz doesn't wait for a login;
 - stops at once if Sainsbury's shows an "are you human?" check or says
   "too many requests", pauses for 45 minutes to 8 hours, and shows
   **Paused** in the app. It never tries to solve those checks.
