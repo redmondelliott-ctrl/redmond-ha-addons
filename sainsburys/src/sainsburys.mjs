@@ -4,7 +4,7 @@
 import fs from 'node:fs'
 import { chromium } from 'playwright-core'
 import { findItems, findOrders, shape } from './orders.mjs'
-import { BlockedError, LoginGuard, looksBlocked, pause, Throttle } from './pacing.mjs'
+import { BlockedError, LoginGuard, looksBlocked, pause, sessionAction, Throttle, ukTime } from './pacing.mjs'
 import { log, setStatus, waitForCode } from './status.mjs'
 
 const SITE = 'https://www.sainsburys.co.uk'
@@ -133,9 +133,55 @@ export class Sainsburys {
     await this.context?.close().catch(() => {})
   }
 
-  async authToken() {
+  async authCookie() {
     const cookies = await this.context.cookies(SITE)
-    return cookies.find((c) => c.name.startsWith('WC_AUTHENTICATION_'))?.value ?? null
+    return cookies.find((c) => c.name.startsWith('WC_AUTHENTICATION_')) ?? null
+  }
+
+  async authToken() {
+    return (await this.authCookie())?.value ?? null
+  }
+
+  /** When the login cookie runs out (ms epoch), or 0 if it has no end date. */
+  async authExpiry() {
+    const c = await this.authCookie()
+    return c && c.expires > 0 ? c.expires * 1000 : 0
+  }
+
+  /** Log when the login cookie runs out, whenever that changes. */
+  async noteExpiry(why) {
+    const at = await this.authExpiry().catch(() => 0)
+    if (at && at !== this.lastExpiry) log(`${why}: Sainsbury’s login lasts until ${ukTime(at)}`)
+    this.lastExpiry = at
+    return at
+  }
+
+  /**
+   * Called on the quiet background checks, never on a tap: keep the session
+   * alive so a tap doesn't have to wait ~30 s for a fresh login. Reopening the
+   * groceries page (like someone coming back to the site) lets the website
+   * renew its own login; if it's still about to run out, log in now.
+   */
+  async keepFresh() {
+    const now = Date.now()
+    const expiresAt = await this.authExpiry().catch(() => 0)
+    const action = sessionAction({ now, expiresAt, pageAt: this.pageAt ?? 0, hasToken: !!(await this.authToken()) })
+    if (action === 'none') return
+    if (action === 'reload') {
+      await this.goto(`${SITE}/gol-ui/groceries`)
+      this.pageAt = Date.now()
+      await pause(2000, 4000)
+      await this.page.mouse.wheel(0, 200 + Math.random() * 400).catch(() => {})
+      const after = await this.noteExpiry('Reopened the site')
+      if (sessionAction({ now: Date.now(), expiresAt: after, pageAt: this.pageAt, hasToken: !!(await this.authToken()) }) !== 'login') return
+    }
+    // Keep the last couple of allowed logins for real taps.
+    if (this.loginGuard.remaining() < 2) return
+    log('Login is about to run out; logging in again now so taps stay quick.')
+    this.okAt = 0
+    await this.login()
+    await this.noteExpiry('Logged in')
+    this.okAt = Date.now()
   }
 
   /** Call the website's own API from inside the logged-in page. */
@@ -210,12 +256,14 @@ export class Sainsburys {
   async loginOnce() {
     setStatus({ state: 'logging_in', message: 'Logging in to Sainsbury’s…' })
     const page = this.page
-    // Arrive the way a person does: the groceries home page first.
-    await this.goto(`${SITE}/gol-ui/groceries`)
-    await pause(2500, 5000)
+    // Arrive the way a person does: from a groceries page (usually already open).
+    if (!page.url().startsWith(`${SITE}/gol-ui/`)) {
+      await this.goto(`${SITE}/gol-ui/groceries`)
+      await pause(1500, 3000)
+    }
     await this.dismissCookieBanner()
     await this.goto(`${SITE}/gol-ui/oauth/login`)
-    await pause(2500, 4500)
+    await pause(1500, 3000)
     log(`Login page: ${new URL(page.url()).host}${new URL(page.url()).pathname}`)
     if (!page.url().includes('login') && (await this.isLoggedIn().catch(() => false))) return
     await this.dismissCookieBanner()
@@ -228,7 +276,9 @@ export class Sainsburys {
     await pause(500, 1300)
     await this.dismissCookieBanner()
     await this.humanClick(page.locator('button[type="submit"], button[data-testid="log-in"]').first())
-    await page.waitForTimeout(6000)
+    // Move on as soon as the page leaves the login form (a code page counts).
+    await page.waitForURL((u) => !/\/login(-ui|$|\/)/.test(u.pathname) || u.pathname.includes('/mfa'), { timeout: 15_000, waitUntil: 'commit' }).catch(() => {})
+    await pause(1200, 2200)
     await this.checkPage(200)
     log(`After login: ${new URL(page.url()).host}${new URL(page.url()).pathname}`)
 
@@ -245,6 +295,7 @@ export class Sainsburys {
     }
 
     await this.settleAfterLogin()
+    this.pageAt = Date.now()
     if (!(await this.loggedInSoon())) {
       await this.screenshot()
       const where = new URL(page.url()).pathname
@@ -288,7 +339,10 @@ export class Sainsburys {
     } catch (e) {
       if (e instanceof BlockedError) throw e
     }
-    if (!ok) await this.login()
+    if (!ok) {
+      await this.login()
+      await this.noteExpiry('Logged in')
+    }
     // Logged in and working, so any earlier "failed" login was a false alarm
     // (it often finishes a moment after we gave up on it): clear the strikes.
     else this.loginGuard.succeeded()

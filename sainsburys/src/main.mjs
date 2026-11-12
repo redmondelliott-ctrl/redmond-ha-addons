@@ -47,7 +47,7 @@ function saveState(state) {
  * night, like a household that checks the trolley now and then, never a
  * metronome hitting the site every few minutes around the clock.
  */
-const keepAliveGap = () => (isDaytime() ? jitter(12 * MIN, 25 * MIN) : jitter(70 * MIN, 130 * MIN))
+const keepAliveGap = () => (isDaytime() ? jitter(10 * MIN, 18 * MIN) : jitter(70 * MIN, 130 * MIN))
 const favouritesGap = () => jitter(5 * HOUR, 8 * HOUR)
 const ordersGap = () => jitter(20 * HOUR, 28 * HOUR)
 
@@ -211,6 +211,8 @@ async function run() {
   async function work(job) {
     if (!job) {
       await ready()
+      // Keep the login fresh in the background so taps don't wait for one.
+      if (isDaytime()) await sb.keepFresh()
       const now = Date.now()
       if (isDaytime() && now >= nextFavourites) await refreshFavourites()
       else if (isDaytime() && now >= nextOrders) await syncOrders(6)
